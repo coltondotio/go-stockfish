@@ -14,6 +14,12 @@ func main() {
 		log.Fatal(err)
 	}
 
+	err = sf.Start()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer sf.Close()
+
 	// Example FEN string representing a chess position
 	fen := "r1bqkbnr/ppp1nppp/3p4/3Pp3/4P3/5N2/PPP1BPPP/RNBQK2R b KQkq - 2 5"
 

@@ -19,8 +19,69 @@ import (
 
 type stockfishImpl struct {
 	binaryPath string
-	initOnce   sync.Once
-	initErr    error
+	cmd        *exec.Cmd
+	stdin      io.WriteCloser
+	stdout     io.ReadCloser
+	scanner    *bufio.Scanner
+	mutex      sync.Mutex
+}
+
+func (s *stockfishImpl) Start() error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if err := s.initBinary(); err != nil {
+		return fmt.Errorf("failed to initialize binary: %w", err)
+	}
+
+	cmd := exec.Command(s.binaryPath)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdin pipe: %w", err)
+	}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start stockfish: %w", err)
+	}
+
+	s.cmd = cmd
+	s.stdin = stdin
+	s.stdout = stdout
+	s.scanner = bufio.NewScanner(stdout)
+
+	// Initialize UCI and wait for ready
+	if _, err := io.WriteString(stdin, "uci\nisready\n"); err != nil {
+		return fmt.Errorf("failed to write UCI init commands: %w", err)
+	}
+
+	for s.scanner.Scan() {
+		if s.scanner.Text() == "readyok" {
+			break
+		}
+	}
+
+	return nil
+}
+
+func (s *stockfishImpl) Close() error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.cmd != nil && s.cmd.Process != nil {
+		if err := s.cmd.Process.Kill(); err != nil {
+			return fmt.Errorf("failed to kill stockfish process: %w", err)
+		}
+		s.cmd = nil
+		s.stdin = nil
+		s.stdout = nil
+		s.scanner = nil
+	}
+	return nil
 }
 
 func (s *stockfishImpl) initBinary() error {
@@ -67,52 +128,23 @@ func (s *stockfishImpl) initBinary() error {
 }
 
 func (s *stockfishImpl) GetFenPosition(depth int, fen string) (Position, error) {
-	s.initOnce.Do(func() {
-		s.initErr = s.initBinary()
-	})
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
-	if s.initErr != nil {
-		return Position{}, fmt.Errorf("failed to initialize stockfish binary: %w", s.initErr)
-	}
-
-	cmd := exec.Command(s.binaryPath)
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return Position{}, fmt.Errorf("failed to create stdin pipe: %w", err)
-	}
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return Position{}, fmt.Errorf("failed to create stdout pipe: %w", err)
-	}
-
-	if err := cmd.Start(); err != nil {
-		return Position{}, fmt.Errorf("failed to start stockfish: %w", err)
-	}
-	defer cmd.Process.Kill()
-
-	// Initialize UCI and wait for ready
-	if _, err := io.WriteString(stdin, "uci\nisready\n"); err != nil {
-		return Position{}, fmt.Errorf("failed to write UCI init commands: %w", err)
-	}
-
-	scanner := bufio.NewScanner(stdout)
-	for scanner.Scan() {
-		if scanner.Text() == "readyok" {
-			break
-		}
+	if s.cmd == nil {
+		return Position{}, errors.New("stockfish engine not started")
 	}
 
 	// Send position and analysis commands
 	input := fmt.Sprintf("position fen %s\ngo depth %d\n", fen, depth)
-	if _, err := io.WriteString(stdin, input); err != nil {
+	if _, err := io.WriteString(s.stdin, input); err != nil {
 		return Position{}, fmt.Errorf("failed to write position commands: %w", err)
 	}
 
 	var lastInfoLine string
 	var seenInfoDepth bool
-	for scanner.Scan() {
-		line := scanner.Text()
+	for s.scanner.Scan() {
+		line := s.scanner.Text()
 		if strings.HasPrefix(line, "info depth") {
 			lastInfoLine = line
 			seenInfoDepth = true
@@ -121,7 +153,7 @@ func (s *stockfishImpl) GetFenPosition(depth int, fen string) (Position, error) 
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
+	if err := s.scanner.Err(); err != nil {
 		return Position{}, fmt.Errorf("error reading output: %w", err)
 	}
 	if lastInfoLine == "" {

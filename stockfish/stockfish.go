@@ -6,6 +6,8 @@ import (
 )
 
 type Stockfish interface {
+	Start() error
+	Close() error
 	GetFenPosition(depth int, fen string) (Position, error)
 }
 
