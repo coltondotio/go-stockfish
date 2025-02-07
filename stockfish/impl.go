@@ -26,6 +26,7 @@ type stockfishImpl struct {
 	stdout     io.ReadCloser
 	scanner    *bufio.Scanner
 	mutex      sync.Mutex
+	debug      bool
 }
 
 func (s *stockfishImpl) Start() error {
@@ -65,6 +66,12 @@ func (s *stockfishImpl) Start() error {
 		if s.scanner.Text() == "readyok" {
 			break
 		}
+	}
+
+	// Set number of threads to number of CPUs
+	numCPU := runtime.NumCPU()
+	if _, err := io.WriteString(stdin, fmt.Sprintf("setoption name Threads value %d\n", numCPU)); err != nil {
+		return fmt.Errorf("failed to set thread count: %w", err)
 	}
 
 	return nil
@@ -159,6 +166,19 @@ func (s *stockfishImpl) parsePosition(lastInfoLine string) (Position, error) {
 	return Position{}, errors.New("could not parse score from stockfish output")
 }
 
+func (s *stockfishImpl) flushState() error {
+	if _, err := io.WriteString(s.stdin, "ucinewgame\nisready\n"); err != nil {
+		return fmt.Errorf("failed to write flush commands: %w", err)
+	}
+
+	for s.scanner.Scan() {
+		if s.scanner.Text() == "readyok" {
+			break
+		}
+	}
+	return nil
+}
+
 func (s *stockfishImpl) GetFenPosition(depth int, fen string) (Position, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -167,22 +187,33 @@ func (s *stockfishImpl) GetFenPosition(depth int, fen string) (Position, error) 
 		return Position{}, errors.New("stockfish engine not started")
 	}
 
+	// Flush existing state
+	if err := s.flushState(); err != nil {
+		return Position{}, err
+	}
+
 	// Send position and analysis commands
-	input := fmt.Sprintf("ucinewgame\nposition fen %s\ngo depth %d\n", fen, depth)
+	input := fmt.Sprintf("position fen %s\ngo depth %d\n", fen, depth)
 	if _, err := io.WriteString(s.stdin, input); err != nil {
 		return Position{}, fmt.Errorf("failed to write position commands: %w", err)
 	}
 
 	var lastInfoLine string
 	var seenInfoDepth bool
+	var initialLines []string
 	for s.scanner.Scan() {
 		line := s.scanner.Text()
+		initialLines = append(initialLines, line)
 		if strings.HasPrefix(line, "info depth") {
 			lastInfoLine = line
 			seenInfoDepth = true
 		} else if seenInfoDepth && strings.HasPrefix(line, "bestmove") {
 			break
 		}
+	}
+
+	if s.debug {
+		fmt.Printf("Debug: initial position analysis:\n%s\n", strings.Join(initialLines, "\n"))
 	}
 
 	if err := s.scanner.Err(); err != nil {
@@ -210,23 +241,36 @@ func (s *stockfishImpl) GetFenPosition(depth int, fen string) (Position, error) 
 		// No PV found, return current position evaluation
 		return pos, nil
 	}
-	moves := pvMatches[1]
 
-	// Play out the position with the moves
-	input = fmt.Sprintf("ucinewgame\nposition fen %s moves %s\ngo depth %d\n", fen, moves, depth)
+	// Get just the first move from the PV line
+	firstMove := strings.Fields(pvMatches[1])[0]
+
+	// Flush state again before evaluating final position
+	if err := s.flushState(); err != nil {
+		return Position{}, err
+	}
+
+	// Play out the position with just the first move
+	input = fmt.Sprintf("position fen %s moves %s\ngo depth %d\n", fen, firstMove, depth)
 	if _, err := io.WriteString(s.stdin, input); err != nil {
 		return Position{}, fmt.Errorf("failed to write position with moves: %w", err)
 	}
 
 	// Get the final evaluation
 	var finalInfoLine string
+	var finalLines []string
 	for s.scanner.Scan() {
 		line := s.scanner.Text()
+		finalLines = append(finalLines, line)
 		if strings.HasPrefix(line, "info depth") {
 			finalInfoLine = line
 		} else if strings.HasPrefix(line, "bestmove") {
 			break
 		}
+	}
+
+	if s.debug {
+		fmt.Printf("Debug: final position analysis:\n%s\n", strings.Join(finalLines, "\n"))
 	}
 
 	if finalInfoLine == "" {

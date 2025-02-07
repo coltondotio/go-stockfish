@@ -6,7 +6,7 @@ import (
 )
 
 func TestGetFenPosition(t *testing.T) {
-	sf, err := New()
+	sf, err := New(Options{})
 	if err != nil {
 		t.Fatalf("Failed to create Stockfish instance: %v", err)
 	}
@@ -34,7 +34,7 @@ func TestGetFenPosition(t *testing.T) {
 }
 
 func TestGetFenPositionBenchmark(t *testing.T) {
-	sf, err := New()
+	sf, err := New(Options{})
 	if err != nil {
 		t.Fatalf("Failed to create Stockfish instance: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestGetFenPositionBenchmark(t *testing.T) {
 	start := time.Now()
 
 	for i, fen := range fens {
-		_, err := sf.GetFenPosition(8, fen)
+		_, err := sf.GetFenPosition(20, fen)
 		if err != nil {
 			t.Fatalf("Failed to get position on iteration %d: %v", i, err)
 		}
@@ -106,7 +106,7 @@ func TestGetFenPositionBenchmark(t *testing.T) {
 }
 
 func TestBadPosition(t *testing.T) {
-	sf, err := New()
+	sf, err := New(Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestBadPosition(t *testing.T) {
 }
 
 func TestMateInOne(t *testing.T) {
-	sf, err := New()
+	sf, err := New(Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestMateInOne(t *testing.T) {
 }
 
 func TestCheckmate(t *testing.T) {
-	sf, err := New()
+	sf, err := New(Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestCheckmate(t *testing.T) {
 }
 
 func TestBop(t *testing.T) {
-	sf, err := New()
+	sf, err := New(Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestBop(t *testing.T) {
 }
 
 func TestDraw(t *testing.T) {
-	sf, err := New()
+	sf, err := New(Options{})
 	if err != nil {
 		t.Fatal(err)
 	}

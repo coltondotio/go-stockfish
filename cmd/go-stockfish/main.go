@@ -20,7 +20,7 @@ func main() {
 
 	fen := flag.Arg(0)
 
-	sf, err := stockfish.New()
+	sf, err := stockfish.New(stockfish.Options{Debug: true})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating Stockfish: %v\n", err)
 		os.Exit(1)
