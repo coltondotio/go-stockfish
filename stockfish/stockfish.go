@@ -18,7 +18,9 @@ type Options struct {
 func New(options Options) (Stockfish, error) {
 	if (runtime.GOOS == "darwin" && runtime.GOARCH == "arm64") ||
 		(runtime.GOOS == "linux" && runtime.GOARCH == "amd64") {
-		return &stockfishImpl{}, nil
+		return &stockfishImpl{
+			debug: options.Debug,
+		}, nil
 	}
 	return nil, errors.New("unsupported architecture - only macOS ARM64 (Apple Silicon) and Linux x86-64 are supported")
 }
