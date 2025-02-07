@@ -95,7 +95,7 @@ func TestGetFenPositionBenchmark(t *testing.T) {
 	start := time.Now()
 
 	for i, fen := range fens {
-		_, err := sf.GetFenPosition(15, fen)
+		_, err := sf.GetFenPosition(8, fen)
 		if err != nil {
 			t.Fatalf("Failed to get position on iteration %d: %v", i, err)
 		}
@@ -103,4 +103,85 @@ func TestGetFenPositionBenchmark(t *testing.T) {
 
 	elapsed := time.Since(start)
 	t.Logf("Time taken for 50 position evaluations: %v", elapsed)
+}
+
+func TestBadPosition(t *testing.T) {
+	sf, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = sf.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sf.Close()
+
+	fen := "rnbqkbnr/pppp2pp/4pp2/8/1Q6/3P4/PPP1PPPP/RNB1KBNR b KQkq - 1 3"
+	pos, err := sf.GetFenPosition(10, fen)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !pos.IsCentipawnScore {
+		t.Fatal("Expected centipawn score")
+	}
+
+	if pos.CentipawnScore > -500 {
+		t.Errorf("Expected position evaluation to be less than -500, got %d", pos.CentipawnScore)
+	}
+}
+
+func TestMateInOne(t *testing.T) {
+	sf, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = sf.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sf.Close()
+
+	fen := "rnbqkbnr/2pppppp/1p6/p6Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 0 4"
+	pos, err := sf.GetFenPosition(10, fen)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !pos.IsMateScore {
+		t.Fatal("Expected mate score")
+	}
+
+	if pos.MateScore != 1 {
+		t.Errorf("Expected mate in 1, got mate in %d", pos.MateScore)
+	}
+}
+
+func TestCheckmate(t *testing.T) {
+	sf, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = sf.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sf.Close()
+
+	fen := "rnbqkbnr/2pppQpp/1p6/p7/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 4"
+	pos, err := sf.GetFenPosition(10, fen)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !pos.IsMateScore {
+		t.Fatal("Expected mate score")
+	}
+
+	if pos.MateScore != 0 {
+		t.Errorf("Expected mate in 0 (checkmate), got mate in %d", pos.MateScore)
+	}
 }

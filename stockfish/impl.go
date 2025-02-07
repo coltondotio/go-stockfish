@@ -148,7 +148,7 @@ func (s *stockfishImpl) GetFenPosition(depth int, fen string) (Position, error) 
 		if strings.HasPrefix(line, "info depth") {
 			lastInfoLine = line
 			seenInfoDepth = true
-		} else if seenInfoDepth {
+		} else if seenInfoDepth && strings.HasPrefix(line, "bestmove") {
 			break
 		}
 	}
@@ -163,17 +163,7 @@ func (s *stockfishImpl) GetFenPosition(depth int, fen string) (Position, error) 
 	// Parse the score from the last info line
 	cpRegex := regexp.MustCompile(`score cp (-?\d+)`)
 	mateRegex := regexp.MustCompile(`score mate (-?\d+)`)
-
-	if cpMatches := cpRegex.FindStringSubmatch(lastInfoLine); cpMatches != nil {
-		score, err := strconv.ParseInt(cpMatches[1], 10, 32)
-		if err != nil {
-			return Position{}, fmt.Errorf("failed to parse centipawn score: %w", err)
-		}
-		return Position{
-			IsCentipawnScore: true,
-			CentipawnScore:   int(score),
-		}, nil
-	}
+	pvRegex := regexp.MustCompile(`\spv (.+)$`)
 
 	if mateMatches := mateRegex.FindStringSubmatch(lastInfoLine); mateMatches != nil {
 		score, err := strconv.ParseInt(mateMatches[1], 10, 32)
@@ -183,6 +173,51 @@ func (s *stockfishImpl) GetFenPosition(depth int, fen string) (Position, error) 
 		return Position{
 			IsMateScore: true,
 			MateScore:   int(score),
+		}, nil
+	}
+
+	if cpMatches := cpRegex.FindStringSubmatch(lastInfoLine); cpMatches != nil {
+		// Extract the PV (move sequence)
+		pvMatches := pvRegex.FindStringSubmatch(lastInfoLine)
+		if pvMatches == nil {
+			return Position{}, errors.New("could not find principal variation in stockfish output")
+		}
+		moves := pvMatches[1]
+
+		// Play out the position with the moves
+		input = fmt.Sprintf("position fen %s moves %s\ngo depth %d\n", fen, moves, depth)
+		if _, err := io.WriteString(s.stdin, input); err != nil {
+			return Position{}, fmt.Errorf("failed to write position with moves: %w", err)
+		}
+
+		// Get the final evaluation
+		var finalInfoLine string
+		for s.scanner.Scan() {
+			line := s.scanner.Text()
+			if strings.HasPrefix(line, "info depth") {
+				finalInfoLine = line
+			} else if strings.HasPrefix(line, "bestmove") {
+				break
+			}
+		}
+
+		if finalInfoLine == "" {
+			return Position{}, errors.New("no evaluation found after playing moves")
+		}
+
+		finalCpMatches := cpRegex.FindStringSubmatch(finalInfoLine)
+		if finalCpMatches == nil {
+			return Position{}, errors.New("could not find centipawn score in final position")
+		}
+
+		score, err := strconv.ParseInt(finalCpMatches[1], 10, 32)
+		if err != nil {
+			return Position{}, fmt.Errorf("failed to parse final centipawn score: %w", err)
+		}
+
+		return Position{
+			IsCentipawnScore: true,
+			CentipawnScore:   int(score),
 		}, nil
 	}
 
