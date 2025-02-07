@@ -185,3 +185,25 @@ func TestCheckmate(t *testing.T) {
 		t.Errorf("Expected mate in 0 (checkmate), got mate in %d", pos.MateScore)
 	}
 }
+
+func TestBop(t *testing.T) {
+	sf, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = sf.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sf.Close()
+
+	fen := "rn2k1Q1/ppp2r2/6N1/q3p3/4b3/P1P1P3/5PPP/R4RK1 b q - 1 18"
+
+	for i := 0; i < 100; i++ {
+		_, err := sf.GetFenPosition(10, fen)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}

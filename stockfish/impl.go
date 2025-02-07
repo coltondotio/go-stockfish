@@ -1,3 +1,5 @@
+// code generated mostly by claude-3.5-sonnet
+
 package stockfish
 
 import (
@@ -127,6 +129,36 @@ func (s *stockfishImpl) initBinary() error {
 	return nil
 }
 
+func (s *stockfishImpl) parsePosition(lastInfoLine string) (Position, error) {
+	// Parse the score from the info line
+	cpRegex := regexp.MustCompile(`score cp (-?\d+)`)
+	mateRegex := regexp.MustCompile(`score mate (-?\d+)`)
+
+	if mateMatches := mateRegex.FindStringSubmatch(lastInfoLine); mateMatches != nil {
+		score, err := strconv.ParseInt(mateMatches[1], 10, 32)
+		if err != nil {
+			return Position{}, fmt.Errorf("failed to parse mate score: %w", err)
+		}
+		return Position{
+			IsMateScore: true,
+			MateScore:   int(score),
+		}, nil
+	}
+
+	if cpMatches := cpRegex.FindStringSubmatch(lastInfoLine); cpMatches != nil {
+		score, err := strconv.ParseInt(cpMatches[1], 10, 32)
+		if err != nil {
+			return Position{}, fmt.Errorf("failed to parse centipawn score: %w", err)
+		}
+		return Position{
+			IsCentipawnScore: true,
+			CentipawnScore:   int(score),
+		}, nil
+	}
+
+	return Position{}, errors.New("could not parse score from stockfish output")
+}
+
 func (s *stockfishImpl) GetFenPosition(depth int, fen string) (Position, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -160,66 +192,46 @@ func (s *stockfishImpl) GetFenPosition(depth int, fen string) (Position, error) 
 		return Position{}, errors.New("no evaluation found in stockfish output")
 	}
 
-	// Parse the score from the last info line
-	cpRegex := regexp.MustCompile(`score cp (-?\d+)`)
-	mateRegex := regexp.MustCompile(`score mate (-?\d+)`)
+	// First get the initial position evaluation
+	pos, err := s.parsePosition(lastInfoLine)
+	if err != nil {
+		return Position{}, err
+	}
+
+	// If it's already a mate score, return it
+	if pos.IsMateScore {
+		return pos, nil
+	}
+
+	// Otherwise, extract PV and evaluate the final position
 	pvRegex := regexp.MustCompile(`\spv (.+)$`)
+	pvMatches := pvRegex.FindStringSubmatch(lastInfoLine)
+	if pvMatches == nil {
+		return Position{}, errors.New("could not find principal variation in stockfish output")
+	}
+	moves := pvMatches[1]
 
-	if mateMatches := mateRegex.FindStringSubmatch(lastInfoLine); mateMatches != nil {
-		score, err := strconv.ParseInt(mateMatches[1], 10, 32)
-		if err != nil {
-			return Position{}, fmt.Errorf("failed to parse mate score: %w", err)
-		}
-		return Position{
-			IsMateScore: true,
-			MateScore:   int(score),
-		}, nil
+	// Play out the position with the moves
+	input = fmt.Sprintf("position fen %s moves %s\ngo depth %d\n", fen, moves, depth)
+	if _, err := io.WriteString(s.stdin, input); err != nil {
+		return Position{}, fmt.Errorf("failed to write position with moves: %w", err)
 	}
 
-	if cpMatches := cpRegex.FindStringSubmatch(lastInfoLine); cpMatches != nil {
-		// Extract the PV (move sequence)
-		pvMatches := pvRegex.FindStringSubmatch(lastInfoLine)
-		if pvMatches == nil {
-			return Position{}, errors.New("could not find principal variation in stockfish output")
+	// Get the final evaluation
+	var finalInfoLine string
+	for s.scanner.Scan() {
+		line := s.scanner.Text()
+		if strings.HasPrefix(line, "info depth") {
+			finalInfoLine = line
+		} else if strings.HasPrefix(line, "bestmove") {
+			break
 		}
-		moves := pvMatches[1]
-
-		// Play out the position with the moves
-		input = fmt.Sprintf("position fen %s moves %s\ngo depth %d\n", fen, moves, depth)
-		if _, err := io.WriteString(s.stdin, input); err != nil {
-			return Position{}, fmt.Errorf("failed to write position with moves: %w", err)
-		}
-
-		// Get the final evaluation
-		var finalInfoLine string
-		for s.scanner.Scan() {
-			line := s.scanner.Text()
-			if strings.HasPrefix(line, "info depth") {
-				finalInfoLine = line
-			} else if strings.HasPrefix(line, "bestmove") {
-				break
-			}
-		}
-
-		if finalInfoLine == "" {
-			return Position{}, errors.New("no evaluation found after playing moves")
-		}
-
-		finalCpMatches := cpRegex.FindStringSubmatch(finalInfoLine)
-		if finalCpMatches == nil {
-			return Position{}, errors.New("could not find centipawn score in final position")
-		}
-
-		score, err := strconv.ParseInt(finalCpMatches[1], 10, 32)
-		if err != nil {
-			return Position{}, fmt.Errorf("failed to parse final centipawn score: %w", err)
-		}
-
-		return Position{
-			IsCentipawnScore: true,
-			CentipawnScore:   int(score),
-		}, nil
 	}
 
-	return Position{}, errors.New("could not parse score from stockfish output")
+	if finalInfoLine == "" {
+		return Position{}, errors.New("no evaluation found after playing moves")
+	}
+
+	// Parse the final position - this will handle both mate and centipawn scores
+	return s.parsePosition(finalInfoLine)
 }
