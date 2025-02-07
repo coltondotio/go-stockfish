@@ -168,7 +168,7 @@ func (s *stockfishImpl) GetFenPosition(depth int, fen string) (Position, error) 
 	}
 
 	// Send position and analysis commands
-	input := fmt.Sprintf("position fen %s\ngo depth %d\n", fen, depth)
+	input := fmt.Sprintf("ucinewgame\nposition fen %s\ngo depth %d\n", fen, depth)
 	if _, err := io.WriteString(s.stdin, input); err != nil {
 		return Position{}, fmt.Errorf("failed to write position commands: %w", err)
 	}
@@ -213,7 +213,7 @@ func (s *stockfishImpl) GetFenPosition(depth int, fen string) (Position, error) 
 	moves := pvMatches[1]
 
 	// Play out the position with the moves
-	input = fmt.Sprintf("position fen %s moves %s\ngo depth %d\n", fen, moves, depth)
+	input = fmt.Sprintf("ucinewgame\nposition fen %s moves %s\ngo depth %d\n", fen, moves, depth)
 	if _, err := io.WriteString(s.stdin, input); err != nil {
 		return Position{}, fmt.Errorf("failed to write position with moves: %w", err)
 	}
