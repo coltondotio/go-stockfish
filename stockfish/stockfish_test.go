@@ -207,3 +207,34 @@ func TestBop(t *testing.T) {
 		}
 	}
 }
+
+func TestDraw(t *testing.T) {
+	sf, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = sf.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sf.Close()
+
+	fen := "8/5K2/8/8/8/8/2Q5/k7 b - - 32 74"
+	pos, err := sf.GetFenPosition(10, fen)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if pos.IsMateScore {
+		t.Error("Expected non-mate score for drawn position")
+	}
+
+	if !pos.IsCentipawnScore {
+		t.Error("Expected centipawn score for drawn position")
+	}
+
+	if pos.CentipawnScore != 0 {
+		t.Errorf("Expected centipawn score of 0 for drawn position, got %d", pos.CentipawnScore)
+	}
+}

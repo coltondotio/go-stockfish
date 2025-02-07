@@ -203,11 +203,12 @@ func (s *stockfishImpl) GetFenPosition(depth int, fen string) (Position, error) 
 		return pos, nil
 	}
 
-	// Otherwise, extract PV and evaluate the final position
+	// Extract PV and evaluate the final position if available
 	pvRegex := regexp.MustCompile(`\spv (.+)$`)
 	pvMatches := pvRegex.FindStringSubmatch(lastInfoLine)
 	if pvMatches == nil {
-		return Position{}, errors.New("could not find principal variation in stockfish output")
+		// No PV found, return current position evaluation
+		return pos, nil
 	}
 	moves := pvMatches[1]
 
