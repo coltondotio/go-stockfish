@@ -6,7 +6,7 @@ import (
 )
 
 type Stockfish interface {
-	GetFenEvaluation(fen string) (float64, error)
+	GetFenPosition(depth int, fen string) (Position, error)
 }
 
 func New() (Stockfish, error) {
@@ -17,4 +17,11 @@ func New() (Stockfish, error) {
 		return &stockfishImpl{}, nil
 	}
 	return nil, errors.New("unsupported architecture - only macOS ARM64 (Apple Silicon) and Linux x86-64 are supported")
+}
+
+type Position struct {
+	IsMateScore      bool
+	MateScore        int
+	IsCentipawnScore bool
+	CentipawnScore   int
 }

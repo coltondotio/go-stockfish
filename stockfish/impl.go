@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/coltondotio/go-stockfish/stockfish/internal/resources"
@@ -64,59 +66,93 @@ func (s *stockfishImpl) initBinary() error {
 	return nil
 }
 
-func (s *stockfishImpl) GetFenEvaluation(fen string) (float64, error) {
+func (s *stockfishImpl) GetFenPosition(depth int, fen string) (Position, error) {
 	s.initOnce.Do(func() {
 		s.initErr = s.initBinary()
 	})
 
 	if s.initErr != nil {
-		return 0, fmt.Errorf("failed to initialize stockfish binary: %w", s.initErr)
+		return Position{}, fmt.Errorf("failed to initialize stockfish binary: %w", s.initErr)
 	}
 
 	cmd := exec.Command(s.binaryPath)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return 0, fmt.Errorf("failed to create stdin pipe: %w", err)
+		return Position{}, fmt.Errorf("failed to create stdin pipe: %w", err)
 	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return 0, fmt.Errorf("failed to create stdout pipe: %w", err)
+		return Position{}, fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
-		return 0, fmt.Errorf("failed to start stockfish: %w", err)
+		return Position{}, fmt.Errorf("failed to start stockfish: %w", err)
+	}
+	defer cmd.Process.Kill()
+
+	// Initialize UCI and wait for ready
+	if _, err := io.WriteString(stdin, "uci\nisready\n"); err != nil {
+		return Position{}, fmt.Errorf("failed to write UCI init commands: %w", err)
 	}
 
-	// Send commands to stockfish
-	input := fmt.Sprintf("position fen %s\ngo depth 8\neval\n", fen)
-	if _, err := io.WriteString(stdin, input); err != nil {
-		return 0, fmt.Errorf("failed to write to stdin: %w", err)
-	}
-	stdin.Close()
-
-	// Read output and look for evaluation line
 	scanner := bufio.NewScanner(stdout)
-	evalRegex := regexp.MustCompile(`Final evaluation\s+([+-]?\d+\.\d+)`)
+	for scanner.Scan() {
+		if scanner.Text() == "readyok" {
+			break
+		}
+	}
 
+	// Send position and analysis commands
+	input := fmt.Sprintf("position fen %s\ngo depth %d\n", fen, depth)
+	if _, err := io.WriteString(stdin, input); err != nil {
+		return Position{}, fmt.Errorf("failed to write position commands: %w", err)
+	}
+
+	var lastInfoLine string
+	var seenInfoDepth bool
 	for scanner.Scan() {
 		line := scanner.Text()
-		if matches := evalRegex.FindStringSubmatch(line); matches != nil {
-			cmd.Process.Kill() // Clean up the process
-
-			// Parse the float value
-			var value float64
-			_, err := fmt.Sscanf(matches[1], "%f", &value)
-			if err != nil {
-				return 0, fmt.Errorf("failed to parse evaluation value: %w", err)
-			}
-			return value, nil
+		if strings.HasPrefix(line, "info depth") {
+			lastInfoLine = line
+			seenInfoDepth = true
+		} else if seenInfoDepth {
+			break
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		return 0, fmt.Errorf("error reading stockfish output: %w", err)
+		return Position{}, fmt.Errorf("error reading output: %w", err)
+	}
+	if lastInfoLine == "" {
+		return Position{}, errors.New("no evaluation found in stockfish output")
 	}
 
-	return 0, errors.New("evaluation not found in stockfish output")
+	// Parse the score from the last info line
+	cpRegex := regexp.MustCompile(`score cp (-?\d+)`)
+	mateRegex := regexp.MustCompile(`score mate (-?\d+)`)
+
+	if cpMatches := cpRegex.FindStringSubmatch(lastInfoLine); cpMatches != nil {
+		score, err := strconv.ParseInt(cpMatches[1], 10, 32)
+		if err != nil {
+			return Position{}, fmt.Errorf("failed to parse centipawn score: %w", err)
+		}
+		return Position{
+			IsCentipawnScore: true,
+			CentipawnScore:   int(score),
+		}, nil
+	}
+
+	if mateMatches := mateRegex.FindStringSubmatch(lastInfoLine); mateMatches != nil {
+		score, err := strconv.ParseInt(mateMatches[1], 10, 32)
+		if err != nil {
+			return Position{}, fmt.Errorf("failed to parse mate score: %w", err)
+		}
+		return Position{
+			IsMateScore: true,
+			MateScore:   int(score),
+		}, nil
+	}
+
+	return Position{}, errors.New("could not parse score from stockfish output")
 }

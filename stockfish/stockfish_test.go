@@ -1,25 +1,27 @@
 package stockfish
 
 import (
-	"math"
 	"testing"
 )
 
-func TestGetFenEvaluation(t *testing.T) {
+func TestGetFenPosition(t *testing.T) {
 	sf, err := New()
 	if err != nil {
 		t.Fatalf("Failed to create Stockfish instance: %v", err)
 	}
 
-	fen := "r1bqkbnr/ppp1nppp/3p4/3Pp3/4P3/5N2/PPP1BPPP/RNBQK2R b KQkq - 2 5"
-	expectedEval := 0.35
+	fen := "rnbqk1nr/1ppp1ppp/p7/4p2Q/2B1P3/b7/PPPP1PPP/RNB1K1NR w KQkq - 0 4"
 
-	eval, err := sf.GetFenEvaluation(fen)
+	pos, err := sf.GetFenPosition(15, fen)
 	if err != nil {
-		t.Fatalf("Failed to get evaluation: %v", err)
+		t.Fatalf("Failed to get position: %v", err)
 	}
 
-	if math.Abs(eval-expectedEval) > 0.1 {
-		t.Errorf("Evaluation %f not within 0.1 of expected %f", eval, expectedEval)
+	if !pos.IsMateScore {
+		t.Error("Expected mate score, got centipawn score")
+	}
+
+	if pos.MateScore != 1 {
+		t.Errorf("Expected mate in 1, got mate in %d", pos.MateScore)
 	}
 }
