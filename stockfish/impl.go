@@ -187,6 +187,13 @@ func (s *stockfishImpl) GetFenPosition(depth int, fen string) (Position, error) 
 		return Position{}, errors.New("stockfish engine not started")
 	}
 
+	// Get the side to move from FEN
+	fenParts := strings.Fields(fen)
+	if len(fenParts) < 2 {
+		return Position{}, errors.New("invalid FEN string")
+	}
+	isBlackToMove := fenParts[1] == "b"
+
 	// Flush existing state
 	if err := s.flushState(); err != nil {
 		return Position{}, err
@@ -229,6 +236,16 @@ func (s *stockfishImpl) GetFenPosition(depth int, fen string) (Position, error) 
 		return Position{}, err
 	}
 
+	// Negate scores if it's Black's turn
+	if isBlackToMove {
+		if pos.IsMateScore {
+			pos.MateScore = -pos.MateScore
+		}
+		if pos.IsCentipawnScore {
+			pos.CentipawnScore = -pos.CentipawnScore
+		}
+	}
+
 	// If it's already a mate score, return it
 	if pos.IsMateScore {
 		return pos, nil
@@ -242,18 +259,49 @@ func (s *stockfishImpl) GetFenPosition(depth int, fen string) (Position, error) 
 		return pos, nil
 	}
 
-	// Get just the first move from the PV line
-	firstMove := strings.Fields(pvMatches[1])[0]
+	// Get the first 4 moves from the PV line
+	moves := strings.Fields(pvMatches[1])
+	if len(moves) > 5 {
+		moves = moves[:5]
+	}
+	movesStr := strings.Join(moves, " ")
 
 	// Flush state again before evaluating final position
 	if err := s.flushState(); err != nil {
 		return Position{}, err
 	}
 
-	// Play out the position with just the first move
-	input = fmt.Sprintf("position fen %s moves %s\ngo depth %d\n", fen, firstMove, depth)
+	// Play out the position with the first 4 moves and get the resulting FEN
+	input = fmt.Sprintf("position fen %s moves %s\nd\n", fen, movesStr)
 	if _, err := io.WriteString(s.stdin, input); err != nil {
 		return Position{}, fmt.Errorf("failed to write position with moves: %w", err)
+	}
+
+	// Read the FEN of the resulting position
+	var finalFen string
+	for s.scanner.Scan() {
+		line := s.scanner.Text()
+		if strings.HasPrefix(line, "Fen: ") {
+			finalFen = strings.TrimPrefix(line, "Fen: ")
+			break
+		}
+	}
+
+	if finalFen == "" {
+		return Position{}, errors.New("could not get FEN of final position")
+	}
+
+	// Get the side to move from the final FEN
+	finalFenParts := strings.Fields(finalFen)
+	if len(finalFenParts) < 2 {
+		return Position{}, errors.New("invalid final FEN")
+	}
+	isFinalBlackToMove := finalFenParts[1] == "b"
+
+	// Now analyze the final position
+	input = fmt.Sprintf("go depth %d\n", depth)
+	if _, err := io.WriteString(s.stdin, input); err != nil {
+		return Position{}, fmt.Errorf("failed to analyze final position: %w", err)
 	}
 
 	// Get the final evaluation
@@ -277,6 +325,20 @@ func (s *stockfishImpl) GetFenPosition(depth int, fen string) (Position, error) 
 		return Position{}, errors.New("no evaluation found after playing moves")
 	}
 
-	// Parse the final position - this will handle both mate and centipawn scores
-	return s.parsePosition(finalInfoLine)
+	// Parse the final position and adjust for Black's perspective if needed
+	finalPos, err := s.parsePosition(finalInfoLine)
+	if err != nil {
+		return finalPos, err
+	}
+
+	if isFinalBlackToMove {
+		if finalPos.IsMateScore {
+			finalPos.MateScore = -finalPos.MateScore
+		}
+		if finalPos.IsCentipawnScore {
+			finalPos.CentipawnScore = -finalPos.CentipawnScore
+		}
+	}
+
+	return finalPos, nil
 }
