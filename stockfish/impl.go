@@ -22,13 +22,17 @@ type stockfishImpl struct {
 }
 
 func (s *stockfishImpl) initBinary() error {
-	// Create cache directory in user's home
+	// Try to get cache directory from user's home first
+	var cacheDir string
 	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to get user home directory: %w", err)
+	if err == nil {
+		cacheDir = filepath.Join(homeDir, ".cache", "stockfish-binary")
+	} else {
+		// Fall back to temp directory if home directory is not available
+		tempDir := os.TempDir()
+		cacheDir = filepath.Join(tempDir, "stockfish-binary")
 	}
 
-	cacheDir := filepath.Join(homeDir, ".cache", "stockfish-binary")
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		return fmt.Errorf("failed to create cache directory: %w", err)
 	}
