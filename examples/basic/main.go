@@ -9,7 +9,9 @@ import (
 
 func main() {
 	// Initialize stockfish
-	sf, err := stockfish.New()
+	sf, err := stockfish.New(stockfish.Options{
+		Debug: false,
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -24,7 +26,7 @@ func main() {
 	fen := "r1bqkbnr/ppp1nppp/3p4/3Pp3/4P3/5N2/PPP1BPPP/RNBQK2R b KQkq - 2 5"
 
 	// Get evaluation
-	eval, err := sf.GetFenEvaluation(fen)
+	eval, err := sf.GetFenPosition(10, fen)
 	if err != nil {
 		log.Fatal(err)
 	}

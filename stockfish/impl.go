@@ -61,7 +61,6 @@ func (s *stockfishImpl) Start() error {
 	if _, err := io.WriteString(stdin, "uci\nisready\n"); err != nil {
 		return fmt.Errorf("failed to write UCI init commands: %w", err)
 	}
-
 	for s.scanner.Scan() {
 		if s.scanner.Text() == "readyok" {
 			break
@@ -70,6 +69,9 @@ func (s *stockfishImpl) Start() error {
 
 	// Set number of threads to number of CPUs
 	numCPU := runtime.NumCPU()
+	if s.debug {
+		fmt.Printf("Using %d CPU threads\n", numCPU)
+	}
 	if _, err := io.WriteString(stdin, fmt.Sprintf("setoption name Threads value %d\n", numCPU)); err != nil {
 		return fmt.Errorf("failed to set thread count: %w", err)
 	}
